@@ -1,4 +1,5 @@
 /.gitconfig
+/.config.yaml
 /build/
 /meta-altera-fpga/
 /meta-openembedded/

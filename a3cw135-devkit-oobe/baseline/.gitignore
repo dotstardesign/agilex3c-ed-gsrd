@@ -30,6 +30,9 @@
 
 /sim_setup_baseline/
 
+# `-install-*` targets deposit artifacts here — regeneratable
+/install/
+
 *.qws
 baseline_assignment_defaults.qdf
 board.info
