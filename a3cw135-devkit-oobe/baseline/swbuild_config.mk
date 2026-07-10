@@ -30,7 +30,18 @@ endif
 KAS_LINUX_DTB := $(basename $(KAS_LINUX_DTS_FILE)).dtb
 
 # Yocto deploy image path
-KAS_YOCTO_IMAGE_DIR := software/yocto_linux/build/tmp/deploy/images/$(KAS_MACHINE)
+#
+# YOCTO_TMPDIR resolves to whatever meta-altera-fpga/poky produces as bitbake's
+# TMPDIR. Two supported forms:
+#   - relative (default): a name like "tmp-glibc", interpreted under
+#     software/yocto_linux/build/
+#   - absolute: a full path (starts with "/"), used as-is. Useful when TMPDIR
+#     has been relocated outside the workspace via site.conf/local.conf.
+#
+# The default "tmp-glibc" matches current meta-altera-fpga behaviour (tclib
+# suffix added by multilib class). Poky's default is just "tmp".
+YOCTO_TMPDIR ?= tmp-glibc
+KAS_YOCTO_IMAGE_DIR := $(if $(filter /%,$(YOCTO_TMPDIR)),$(YOCTO_TMPDIR),software/yocto_linux/build/$(YOCTO_TMPDIR))/deploy/images/$(KAS_MACHINE)
 
 ifeq ($(strip $(INSTALL_ROOT_BINARIES)),)
   $(error ERROR: INSTALL_ROOT_BINARIES was not defined before swconfig.mk was parsed)
@@ -59,7 +70,7 @@ endif
 ###############################################################################
 # Create the core RBF files from the SOF files
 output_files/%.core.rbf : output_files/%.sof
-	quartus_pfg -c $< output_files/$*.rbf -o hps=ON
+	quartus_pfg -c $< $@ -o hps=ON -o hps_core_only=ON
 
 ###############################################################################
 #                           SW Build Targets
@@ -169,7 +180,7 @@ sd-postprocess: output_files/$(REVISION)_hps_debug.sof
 		./uboot_bin.sh && \
 		cp $(REVISION)_yocto_linux_sd.sof ghrd.sof && \
 		quartus_pfg -c qspi_helper.pfg && \
-		quartus_pfg -c ghrd.sof ghrd.jic -o device=MT25QU128 -o flash_loader=A3CW135BM16AE6S -o hps_path=u-boot-spl-dtb.hex -o mode=ASX4 -o hps=1 && \
+		quartus_pfg -c ghrd.sof ghrd.jic -o device=MT25QU512 -o flash_loader=A3CW135BM16AE6S -o hps_path=u-boot-spl-dtb.hex -o mode=ASX4 -o hps=1 && \
 		quartus_pfg -o hps=ON -c -o hps_path=u-boot-spl-dtb.hex $(REVISION)_hps_debug.sof ghrd.rbf
 
 	mkdir -p $(INSTALL_ROOT_BINARIES)/software/yocto_linux_sd
@@ -362,7 +373,7 @@ mainline-sd-postprocess: output_files/$(REVISION)_hps_debug.sof
 		./uboot_bin.sh && \
 		cp $(REVISION)_yocto_linux_mainline_sd.sof ghrd.sof && \
 		quartus_pfg -c qspi_helper.pfg && \
-		quartus_pfg -c ghrd.sof ghrd.jic -o device=MT25QU128 -o flash_loader=A3CW135BM16AE6S -o hps_path=u-boot-spl-dtb.hex -o mode=ASX4 -o hps=1 && \
+		quartus_pfg -c ghrd.sof ghrd.jic -o device=MT25QU512 -o flash_loader=A3CW135BM16AE6S -o hps_path=u-boot-spl-dtb.hex -o mode=ASX4 -o hps=1 && \
 		quartus_pfg -o hps=ON -c -o hps_path=u-boot-spl-dtb.hex $(REVISION)_hps_debug.sof ghrd.rbf
 
 	mkdir -p $(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_sd
