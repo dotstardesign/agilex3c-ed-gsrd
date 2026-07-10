@@ -43,7 +43,7 @@ local_conf_header:
   # RBF file should be placed in meta-custom/recipes-fpga/fpga-bitstream/files/
   fpga-bitstream: |
     FPGA_ENABLE_CORE_PGM ?= "1"
-    FPGA_RBF_FILE ?= "baseline_hps_debug.core.rbf"
+    FPGA_RBF_FILE ?= "ghrd.rbf"
 
   kernel-modules: |
     KERNEL_MODULE_PROBECONF = "cfg80211"
