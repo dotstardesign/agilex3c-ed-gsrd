@@ -43,6 +43,26 @@ KAS_LINUX_DTB := $(basename $(KAS_LINUX_DTS_FILE)).dtb
 YOCTO_TMPDIR ?= tmp-glibc
 KAS_YOCTO_IMAGE_DIR := $(if $(filter /%,$(YOCTO_TMPDIR)),$(YOCTO_TMPDIR),software/yocto_linux/build/$(YOCTO_TMPDIR))/deploy/images/$(KAS_MACHINE)
 
+# ---------------------------------------------------------------------------
+# Yocto image lists — which images the build actually produces.
+#
+# The install-sw targets install per-image artifacts (rootfs.tar.gz,
+# rootfs.manifest, etc.). Files for images not enabled in kas menu won't
+# exist in the deploy directory, and Make will error with "no rule to make
+# target". Callers should override these to match their kas menu selection.
+#
+# Defaults preserve historical behaviour (both minimal + gsrd for SD;
+# core-image-minimal for QSPI).
+#
+# Example (only gsrd-console-image enabled in kas menu):
+#   make YOCTO_SD_IMAGES="gsrd-console-image" software-yocto_linux_sd-install-sw
+# ---------------------------------------------------------------------------
+
+YOCTO_SD_IMAGES            ?= console-image-minimal gsrd-console-image
+YOCTO_MAINLINE_SD_IMAGES   ?= $(YOCTO_SD_IMAGES)
+YOCTO_QSPI_IMAGES          ?= core-image-minimal
+YOCTO_MAINLINE_QSPI_IMAGES ?= $(YOCTO_QSPI_IMAGES)
+
 ifeq ($(strip $(INSTALL_ROOT_BINARIES)),)
   $(error ERROR: INSTALL_ROOT_BINARIES was not defined before swconfig.mk was parsed)
 endif
@@ -162,8 +182,13 @@ YOCTO_SD_ARTIFACT_FILES := \
 	u-boot-spl.map \
 	u-boot \
 	$(KAS_LINUX_DTB) \
-	console-image-minimal-$(KAS_MACHINE).rootfs.cpio.gz.u-boot \
-	gsrd-console-image-$(KAS_MACHINE).rootfs.cpio.gz.u-boot
+	$(foreach img,$(YOCTO_SD_IMAGES),$(img)-$(KAS_MACHINE).rootfs.cpio.gz.u-boot)
+
+# Per-image binaries deps for install-sw target below (rootfs.tar.gz +
+# rootfs.manifest for each image enabled in YOCTO_SD_IMAGES).
+YOCTO_SD_IMAGE_INSTALL_DEPS := $(foreach img,$(YOCTO_SD_IMAGES),\
+	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_sd/$(img)-$(KAS_MACHINE).rootfs.tar.gz \
+	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_sd/$(img)-$(KAS_MACHINE).rootfs.manifest)
 
 $(INSTALL_ROOT_ARTIFACTS)/software/yocto_linux_sd/%: $(YOCTO_SD_IMAGE_DIR)/% | $(INSTALL_ROOT_ARTIFACTS)
 	mkdir -p $(dir $@)
@@ -207,10 +232,7 @@ $(SW_YOCTO_LINUX_SD_TARGET)-build-sw: $(YOCTO_SD_WIC)
 $(SW_YOCTO_LINUX_SD_TARGET)-install-sw : \
 	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_sd/sdimage.tar.gz \
 	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_sd/sdimage.tar.gz.md5sum \
-	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_sd/console-image-minimal-$(KAS_MACHINE).rootfs.tar.gz \
-	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_sd/console-image-minimal-$(KAS_MACHINE).rootfs.manifest \
-	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_sd/gsrd-console-image-$(KAS_MACHINE).rootfs.tar.gz \
-	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_sd/gsrd-console-image-$(KAS_MACHINE).rootfs.manifest \
+	$(YOCTO_SD_IMAGE_INSTALL_DEPS) \
 	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_sd/Image \
 	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_sd/kernel.itb \
 	$(YOCTO_SD_OPTIONAL_DTB) \
@@ -254,7 +276,15 @@ YOCTO_QSPI_ARTIFACT_FILES := \
 	u-boot-spl.map \
 	u-boot \
 	$(KAS_LINUX_DTB) \
-	core-image-minimal-$(KAS_MACHINE).rootfs.cpio.gz.u-boot
+	$(foreach img,$(YOCTO_QSPI_IMAGES),$(img)-$(KAS_MACHINE).rootfs.cpio.gz.u-boot)
+
+# Per-image binaries deps for QSPI install-sw target (4 artifacts per image
+# because QSPI uses UBIFS + JFFS2 in addition to the tarball + manifest).
+YOCTO_QSPI_IMAGE_INSTALL_DEPS := $(foreach img,$(YOCTO_QSPI_IMAGES),\
+	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_qspi/$(img)-$(KAS_MACHINE).rootfs_nor.ubifs \
+	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_qspi/$(img)-$(KAS_MACHINE).rootfs.tar.gz \
+	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_qspi/$(img)-$(KAS_MACHINE).rootfs.manifest \
+	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_qspi/$(img)-$(KAS_MACHINE).rootfs.jffs2)
 
 $(INSTALL_ROOT_ARTIFACTS)/software/yocto_linux_qspi/%: $(YOCTO_QSPI_IMAGE_DIR)/% | $(INSTALL_ROOT_ARTIFACTS)
 	mkdir -p $(dir $@)
@@ -296,10 +326,7 @@ $(SW_YOCTO_LINUX_QSPI_TARGET)-build-sw: $(KAS_YOCTO_IMAGE_DIR)/core-image-minima
 
 .PHONY: $(SW_YOCTO_LINUX_QSPI_TARGET)-install-sw
 $(SW_YOCTO_LINUX_QSPI_TARGET)-install-sw : \
-	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_qspi/core-image-minimal-$(KAS_MACHINE).rootfs_nor.ubifs \
-	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_qspi/core-image-minimal-$(KAS_MACHINE).rootfs.tar.gz \
-	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_qspi/core-image-minimal-$(KAS_MACHINE).rootfs.manifest \
-	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_qspi/core-image-minimal-$(KAS_MACHINE).rootfs.jffs2 \
+	$(YOCTO_QSPI_IMAGE_INSTALL_DEPS) \
 	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_qspi/Image \
 	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_qspi/kernel.itb \
 	$(YOCTO_QSPI_OPTIONAL_DTB) \
@@ -355,8 +382,12 @@ YOCTO_MAINLINE_SD_ARTIFACT_FILES := \
 	u-boot-spl.map \
 	u-boot \
 	$(KAS_LINUX_DTB) \
-	console-image-minimal-$(KAS_MACHINE).rootfs.cpio.gz.u-boot \
-	gsrd-console-image-$(KAS_MACHINE).rootfs.cpio.gz.u-boot
+	$(foreach img,$(YOCTO_MAINLINE_SD_IMAGES),$(img)-$(KAS_MACHINE).rootfs.cpio.gz.u-boot)
+
+# Per-image binaries deps for Mainline SD install-sw (same shape as LTS SD).
+YOCTO_MAINLINE_SD_IMAGE_INSTALL_DEPS := $(foreach img,$(YOCTO_MAINLINE_SD_IMAGES),\
+	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_sd/$(img)-$(KAS_MACHINE).rootfs.tar.gz \
+	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_sd/$(img)-$(KAS_MACHINE).rootfs.manifest)
 
 $(INSTALL_ROOT_ARTIFACTS)/software/yocto_linux_mainline_sd/%: $(YOCTO_MAINLINE_SD_IMAGE_DIR)/% | $(INSTALL_ROOT_ARTIFACTS)
 	mkdir -p $(dir $@)
@@ -399,10 +430,7 @@ $(SW_YOCTO_LINUX_MAINLINE_SD_TARGET)-build-sw: $(YOCTO_MAINLINE_SD_WIC)
 $(SW_YOCTO_LINUX_MAINLINE_SD_TARGET)-install-sw : \
 	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_sd/sdimage.tar.gz \
 	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_sd/sdimage.tar.gz.md5sum \
-	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_sd/console-image-minimal-$(KAS_MACHINE).rootfs.tar.gz \
-	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_sd/console-image-minimal-$(KAS_MACHINE).rootfs.manifest \
-	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_sd/gsrd-console-image-$(KAS_MACHINE).rootfs.tar.gz \
-	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_sd/gsrd-console-image-$(KAS_MACHINE).rootfs.manifest \
+	$(YOCTO_MAINLINE_SD_IMAGE_INSTALL_DEPS) \
 	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_sd/Image \
 	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_sd/kernel.itb \
 	$(YOCTO_MAINLINE_SD_OPTIONAL_DTB) \
@@ -446,7 +474,14 @@ YOCTO_MAINLINE_QSPI_ARTIFACT_FILES := \
 	u-boot-spl.map \
 	u-boot \
 	$(KAS_LINUX_DTB) \
-	core-image-minimal-$(KAS_MACHINE).rootfs.cpio.gz.u-boot
+	$(foreach img,$(YOCTO_MAINLINE_QSPI_IMAGES),$(img)-$(KAS_MACHINE).rootfs.cpio.gz.u-boot)
+
+# Per-image binaries deps for Mainline QSPI install-sw (same shape as LTS QSPI).
+YOCTO_MAINLINE_QSPI_IMAGE_INSTALL_DEPS := $(foreach img,$(YOCTO_MAINLINE_QSPI_IMAGES),\
+	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_qspi/$(img)-$(KAS_MACHINE).rootfs_nor.ubifs \
+	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_qspi/$(img)-$(KAS_MACHINE).rootfs.tar.gz \
+	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_qspi/$(img)-$(KAS_MACHINE).rootfs.manifest \
+	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_qspi/$(img)-$(KAS_MACHINE).rootfs.jffs2)
 
 $(INSTALL_ROOT_ARTIFACTS)/software/yocto_linux_mainline_qspi/%: $(YOCTO_MAINLINE_QSPI_IMAGE_DIR)/% | $(INSTALL_ROOT_ARTIFACTS)
 	mkdir -p $(dir $@)
@@ -488,10 +523,7 @@ $(SW_YOCTO_LINUX_MAINLINE_QSPI_TARGET)-build-sw: $(YOCTO_MAINLINE_QSPI_IMAGE_DIR
 
 .PHONY: $(SW_YOCTO_LINUX_MAINLINE_QSPI_TARGET)-install-sw
 $(SW_YOCTO_LINUX_MAINLINE_QSPI_TARGET)-install-sw : \
-	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_qspi/core-image-minimal-$(KAS_MACHINE).rootfs_nor.ubifs \
-	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_qspi/core-image-minimal-$(KAS_MACHINE).rootfs.tar.gz \
-	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_qspi/core-image-minimal-$(KAS_MACHINE).rootfs.manifest \
-	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_qspi/core-image-minimal-$(KAS_MACHINE).rootfs.jffs2 \
+	$(YOCTO_MAINLINE_QSPI_IMAGE_INSTALL_DEPS) \
 	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_qspi/Image \
 	$(INSTALL_ROOT_BINARIES)/software/yocto_linux_mainline_qspi/kernel.itb \
 	$(YOCTO_MAINLINE_QSPI_OPTIONAL_DTB) \
