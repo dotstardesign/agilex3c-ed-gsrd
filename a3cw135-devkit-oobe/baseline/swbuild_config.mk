@@ -63,6 +63,13 @@ YOCTO_MAINLINE_SD_IMAGES   ?= $(YOCTO_SD_IMAGES)
 YOCTO_QSPI_IMAGES          ?= core-image-minimal
 YOCTO_MAINLINE_QSPI_IMAGES ?= $(YOCTO_QSPI_IMAGES)
 
+# Per-image artifact suffixes to install into the artifacts tree. Defaults
+# preserve historical behaviour (install the cpio.gz.u-boot for ramdisk boot
+# testing). Override to empty when IMAGE_FSTYPES doesn't include cpio.gz.u-boot
+# so install-sw doesn't try to copy a file that Yocto never produced.
+YOCTO_SD_PER_IMAGE_ARTIFACTS   ?= rootfs.cpio.gz.u-boot
+YOCTO_QSPI_PER_IMAGE_ARTIFACTS ?= rootfs.cpio.gz.u-boot
+
 ifeq ($(strip $(INSTALL_ROOT_BINARIES)),)
   $(error ERROR: INSTALL_ROOT_BINARIES was not defined before swconfig.mk was parsed)
 endif
@@ -144,13 +151,26 @@ $(SW_HPS_DEBUG_TARGET)-install-sw : $(INSTALL_ROOT_BINARIES)/%_hps_debug.sof
 SW_YOCTO_LINUX_SD_TARGET := software-yocto_linux_sd
 ALL_SW_TARGET_STEM_NAMES += $(SW_YOCTO_LINUX_SD_TARGET)
 
-YOCTO_SD_IMAGE_DIR := $(KAS_YOCTO_IMAGE_DIR)
-YOCTO_SD_WIC       := $(YOCTO_SD_IMAGE_DIR)/gsrd-console-image-$(KAS_MACHINE).rootfs.wic
-YOCTO_SD_SPL_HEX   := $(YOCTO_SD_IMAGE_DIR)/u-boot-spl-dtb.hex
+YOCTO_SD_IMAGE_DIR     := $(KAS_YOCTO_IMAGE_DIR)
+# The primary image whose WIC gets treated as "the" SD image (for tarball,
+# JIC assembly, etc.). Firstword defaulting to the first entry of
+# YOCTO_SD_IMAGES so that overriding YOCTO_SD_IMAGES also changes the WIC.
+YOCTO_SD_PRIMARY_IMAGE ?= $(firstword $(YOCTO_SD_IMAGES))
+YOCTO_SD_WIC           := $(YOCTO_SD_IMAGE_DIR)/$(YOCTO_SD_PRIMARY_IMAGE)-$(KAS_MACHINE).rootfs.wic
+YOCTO_SD_SPL_HEX       := $(YOCTO_SD_IMAGE_DIR)/u-boot-spl-dtb.hex
 
-#Build the Yocto image (depends on $(REVISION) RBF)
-$(YOCTO_SD_WIC): output_files/$(REVISION)_hps_debug.core.rbf
-	cd software/yocto_linux && ./build.sh $(abspath $<) sd
+# Build the Yocto image.
+#
+# Order-only dep on the RBF (via `|`): the RBF must EXIST before we invoke
+# build.sh (which reads it), but timestamp changes do NOT re-trigger a full
+# Yocto rebuild. Editing the FPGA design → new RBF → old WIC stays valid; the
+# user reruns `make yocto` explicitly when they want a fresh Yocto image with
+# the new RBF embedded. This dodges the multi-hour cascade we hit when the
+# vendor's original timestamp dep fired on every fpga rebuild.
+$(YOCTO_SD_WIC): | output_files/$(REVISION)_hps_debug.core.rbf
+	cd software/yocto_linux && \
+	    YOCTO_SD_IMAGES="$(YOCTO_SD_IMAGES)" \
+	    ./build.sh $(abspath output_files/$(REVISION)_hps_debug.core.rbf) sd
 
 #FSBL insertion into SOF
 output_files/%_yocto_linux_sd.sof : output_files/%.sof $(YOCTO_SD_WIC)
@@ -182,7 +202,7 @@ YOCTO_SD_ARTIFACT_FILES := \
 	u-boot-spl.map \
 	u-boot \
 	$(KAS_LINUX_DTB) \
-	$(foreach img,$(YOCTO_SD_IMAGES),$(img)-$(KAS_MACHINE).rootfs.cpio.gz.u-boot)
+	$(foreach img,$(YOCTO_SD_IMAGES),$(foreach art,$(YOCTO_SD_PER_IMAGE_ARTIFACTS),$(img)-$(KAS_MACHINE).$(art)))
 
 # Per-image binaries deps for install-sw target below (rootfs.tar.gz +
 # rootfs.manifest for each image enabled in YOCTO_SD_IMAGES).
@@ -250,11 +270,15 @@ $(SW_YOCTO_LINUX_SD_TARGET)-install-sw : \
 SW_YOCTO_LINUX_QSPI_TARGET := software-yocto_linux_qspi
 ALL_SW_TARGET_STEM_NAMES += $(SW_YOCTO_LINUX_QSPI_TARGET)
 
-YOCTO_QSPI_IMAGE_DIR := $(KAS_YOCTO_IMAGE_DIR)
+YOCTO_QSPI_IMAGE_DIR     := $(KAS_YOCTO_IMAGE_DIR)
+YOCTO_QSPI_PRIMARY_IMAGE ?= $(firstword $(YOCTO_QSPI_IMAGES))
 
-$(KAS_YOCTO_IMAGE_DIR)/core-image-minimal-$(KAS_MACHINE).rootfs_nor.ubifs \
-$(KAS_YOCTO_IMAGE_DIR)/u-boot-spl-dtb.hex: output_files/$(REVISION)_hps_debug.core.rbf
-	cd software/yocto_linux && ./build.sh $(abspath $<) qspi
+# Order-only dep on the RBF — see the SD block above for the rationale.
+$(KAS_YOCTO_IMAGE_DIR)/$(YOCTO_QSPI_PRIMARY_IMAGE)-$(KAS_MACHINE).rootfs_nor.ubifs \
+$(KAS_YOCTO_IMAGE_DIR)/u-boot-spl-dtb.hex: | output_files/$(REVISION)_hps_debug.core.rbf
+	cd software/yocto_linux && \
+	    YOCTO_QSPI_IMAGES="$(YOCTO_QSPI_IMAGES)" \
+	    ./build.sh $(abspath output_files/$(REVISION)_hps_debug.core.rbf) qspi
 
 # Yocto Linux FSBL insertion into the SOF
 output_files/%_yocto_linux_qspi.sof : output_files/%.sof $(KAS_YOCTO_IMAGE_DIR)/core-image-minimal-$(KAS_MACHINE).rootfs_nor.ubifs
@@ -276,7 +300,7 @@ YOCTO_QSPI_ARTIFACT_FILES := \
 	u-boot-spl.map \
 	u-boot \
 	$(KAS_LINUX_DTB) \
-	$(foreach img,$(YOCTO_QSPI_IMAGES),$(img)-$(KAS_MACHINE).rootfs.cpio.gz.u-boot)
+	$(foreach img,$(YOCTO_QSPI_IMAGES),$(foreach art,$(YOCTO_QSPI_PER_IMAGE_ARTIFACTS),$(img)-$(KAS_MACHINE).$(art)))
 
 # Per-image binaries deps for QSPI install-sw target (4 artifacts per image
 # because QSPI uses UBIFS + JFFS2 in addition to the tarball + manifest).
@@ -382,7 +406,7 @@ YOCTO_MAINLINE_SD_ARTIFACT_FILES := \
 	u-boot-spl.map \
 	u-boot \
 	$(KAS_LINUX_DTB) \
-	$(foreach img,$(YOCTO_MAINLINE_SD_IMAGES),$(img)-$(KAS_MACHINE).rootfs.cpio.gz.u-boot)
+	$(foreach img,$(YOCTO_MAINLINE_SD_IMAGES),$(foreach art,$(YOCTO_SD_PER_IMAGE_ARTIFACTS),$(img)-$(KAS_MACHINE).$(art)))
 
 # Per-image binaries deps for Mainline SD install-sw (same shape as LTS SD).
 YOCTO_MAINLINE_SD_IMAGE_INSTALL_DEPS := $(foreach img,$(YOCTO_MAINLINE_SD_IMAGES),\
@@ -474,7 +498,7 @@ YOCTO_MAINLINE_QSPI_ARTIFACT_FILES := \
 	u-boot-spl.map \
 	u-boot \
 	$(KAS_LINUX_DTB) \
-	$(foreach img,$(YOCTO_MAINLINE_QSPI_IMAGES),$(img)-$(KAS_MACHINE).rootfs.cpio.gz.u-boot)
+	$(foreach img,$(YOCTO_MAINLINE_QSPI_IMAGES),$(foreach art,$(YOCTO_QSPI_PER_IMAGE_ARTIFACTS),$(img)-$(KAS_MACHINE).$(art)))
 
 # Per-image binaries deps for Mainline QSPI install-sw (same shape as LTS QSPI).
 YOCTO_MAINLINE_QSPI_IMAGE_INSTALL_DEPS := $(foreach img,$(YOCTO_MAINLINE_QSPI_IMAGES),\

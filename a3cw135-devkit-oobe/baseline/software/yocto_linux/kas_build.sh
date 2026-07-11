@@ -71,24 +71,31 @@ source venv/bin/activate
 # Set the umask to ensure files are created with the correct permissions
 umask 022
 
+# Per-boot-source image lists — override via env var to build only what you need.
+# Defaults preserve historical behaviour (build every image variant per source).
+YOCTO_SD_IMAGES="${YOCTO_SD_IMAGES:-console-image-minimal gsrd-console-image}"
+YOCTO_EMMC_IMAGES="${YOCTO_EMMC_IMAGES:-${YOCTO_SD_IMAGES}}"
+YOCTO_NAND_IMAGES="${YOCTO_NAND_IMAGES:-console-image-minimal}"
+YOCTO_QSPI_IMAGES="${YOCTO_QSPI_IMAGES:-core-image-minimal}"
+
 if [ "$BOOT_SOURCE" = "sd" ] || [ "$BOOT_SOURCE" = "emmc" ]; then
     echo "Preparing to sync layers and parse recipes"
     kas shell kas.yml -c "bitbake -p"
 
-    echo "Preparing to build"
-    kas shell kas.yml -c "bitbake console-image-minimal gsrd-console-image"
+    echo "Preparing to build (SD images: $YOCTO_SD_IMAGES)"
+    kas shell kas.yml -c "bitbake $YOCTO_SD_IMAGES"
 elif [ "$BOOT_SOURCE" = "nand" ]; then
     echo "Preparing to sync layers and parse recipes"
     kas shell kas.yml -c "bitbake -p"
 
-    echo "Preparing to build"
-    kas shell kas.yml -c "bitbake console-image-minimal"
+    echo "Preparing to build (NAND images: $YOCTO_NAND_IMAGES)"
+    kas shell kas.yml -c "bitbake $YOCTO_NAND_IMAGES"
 elif [ "$BOOT_SOURCE" = "qspi" ]; then
     echo "Preparing to sync layers and parse recipes"
     kas shell kas.yml:qspi_boot_src.yml -c "bitbake -p"
 
-    echo "Preparing to build"
-    kas shell kas.yml:qspi_boot_src.yml -c "bitbake core-image-minimal"
+    echo "Preparing to build (QSPI images: $YOCTO_QSPI_IMAGES)"
+    kas shell kas.yml:qspi_boot_src.yml -c "bitbake $YOCTO_QSPI_IMAGES"
 fi
 
 echo "Build completed successfully."
